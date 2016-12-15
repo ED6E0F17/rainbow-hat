@@ -35,9 +35,9 @@ def set_rainbow(temp):
 
     hue = (1.0-temp) * abs(HUE_WARM - HUE_COLD) / 360.0
 
-    r, g, b = [int(c * 255) for c in  colorsys.hsv_to_rgb(hue, 1.0, 1.0)]
+    r, g, b = [int(c * 100) for c in  colorsys.hsv_to_rgb(hue, 1.0, 1.0)]
 
-    rainbowhat.rainbow.set_all(r, g, b, brightness=0.1)
+    rainbowhat.rainbow.set_pixel(3, r, g, b, 0.2)
     rainbowhat.rainbow.show()
 
 
@@ -47,10 +47,11 @@ try:
 
         set_rainbow(temperature)
 
+        rainbowhat.display.clear()
         rainbowhat.display.print_float(temperature)
         rainbowhat.display.show()
 
-        time.sleep(0.1)
+        time.sleep(1)
 
 except KeyboardInterrupt:
     pass
