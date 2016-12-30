@@ -16,18 +16,19 @@
 #define DEFAULT_BRIGHTNESS 8
 #define BLINKT_LEDS 8
 
-#ifdef RAINTEST
- #define RAINBOW
+#ifdef BTEST
+ #define BLINKT
  #define TEST
 #endif
 
-#ifdef RAINBOW
+#ifdef BLINKT
+ #define MOSI 23
+ #define SCLK 24
+#else
+ #define RAINBOW
  #define MOSI 10
  #define SCLK 11
  #define NSS   8
-#else
- #define MOSI 23
- #define SCLK 24
 #endif
 
 #define HIGH 1

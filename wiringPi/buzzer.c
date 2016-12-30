@@ -12,7 +12,8 @@
 #include <unistd.h>
 
 #define BASETONE 440
-#define PWM_PIN 23
+// BCM Pin Number 13 not WiringPi 23.
+#define PWM_PIN 13
 #define ONEK 1000
 #define DIVISOR 32
 #define RANGE (int)(19.2 * ONEK * ONEK / DIVISOR / BASETONE)
@@ -49,7 +50,7 @@ int main( void ) {
 		printf( "Range %d:%d\n", i, range[i]) ;
 	}
 
-	if ( wiringPiSetup() == -1 ) {
+	if ( wiringPiSetupGpio() == -1 ) {
 		exit( 1 ) ;
 	}
 

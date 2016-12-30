@@ -18,12 +18,12 @@
  ****************************************************/
 
 #define HT16K33_I2C 0x70
-#define HT16K33_BLINK_CMD 0x80
+#define HT16K33_DISPLAYOFF 0x80
 #define HT16K33_DISPLAYON 0x81
-#define HT16K33_BLINK_OFF 0
-#define HT16K33_BLINK_2HZ  1
-#define HT16K33_BLINK_1HZ  2
-#define HT16K33_BLINK_HALFHZ  3
+#define HT16K33_BLINK_OFF (0 << 1)
+#define HT16K33_BLINK_2HZ (1 << 1)
+#define HT16K33_BLINK_1HZ (2 << 1)
+#define HT16K33_BLINK_2S  (3 << 1)
 #define HT16K33_CMD_BRIGHTNESS 0xE0
 #define HT16K33_SETUP 0x21
 #define MAXBRIGHT 15
