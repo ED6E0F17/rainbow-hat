@@ -14,6 +14,7 @@
   BSD license, all text above must be included in any redistribution
  ****************************************************/
 
+//gcc hadie.c -l wiringPi -l pthread -o hadie
 
 #include "vc0706.h"
 #include "wiringSerial.h"
@@ -94,7 +95,6 @@ uint8_t getCompression( void ) {
 
 int takePicture() {
 	frameptr = 0;
-	// flush();
 	return frameBuffCtrl( VC0706_STOPCURRENTFRAME );
 }
 
@@ -208,41 +208,125 @@ int verifyResponse( uint8_t command ) {
 	return 1;
 }
 
-int main()
+uint8_t* imagebuffer;
+static int vc0706bytes;
+int camera_reset()
 {
-	int v, bytes;
-	uint8_t* imagebuffer;
-
 	if( !begin()) {
 		fprintf(stderr, "Camera not found\n");
-		return -22;
+		return 0;
 	}
 
 	getVersion(); // "VC0706 1.00"
 	if( !TVout(0) )
 		fprintf(stderr, "Video out not disabled\n");
 
-	fprintf(stderr, "Taking Picture.\n");
+	return 1;
+}
+
+int camera_photo(void) {
+	fprintf(stderr, "\nTaking Picture.\n");
 	takePicture();
-	bytes = frameLength();
-	fprintf(stderr, "%d bytes to read\n", bytes);
+	vc0706bytes = frameLength();
+	fprintf(stderr, "%d bytes to read\n", vc0706bytes);
 
 	// if( not lowpower() ):
 	fprintf(stderr, "Framebuffer not disabled\n");
-
-	while (bytes > 0) {
-		int size = CAMREADSIZE;
-		if (bytes < size)
-			size = bytes;
-		bytes -= size;
-		imagebuffer = readPicture( size );
-		fprintf(stderr, ".");
-		fwrite(imagebuffer, 1, size, stdout);
-	}
-	fprintf(stderr, "\nDone.\n");
-	resumeVideo();
-
-	serialClose(uartfile);
-	return 0;
+	return vc0706bytes;
 }
-//gcc test_vc0706.c -l wiringPi -l pthread
+
+uint8_t camera_read(uint8_t size) {
+	if (!vc0706bytes)
+		camera_photo();
+	if (vc0706bytes < size)
+		size = vc0706bytes;
+	vc0706bytes -= size;
+	imagebuffer = readPicture( size );
+	if (!vc0706bytes) {
+		resumeVideo(); // reload framebuffer at 30 fps
+		usleep(200*1000);  // TODO: not needed if Tx has a delay
+	}
+	
+	return size;
+}
+
+void camera_close(void) {
+	serialClose(uartfile);
+}
+
+/* hadie - High Altitude Balloon flight software              */
+/*============================================================*/
+/* Copyright (C)2010 Philip Heron <phil@sanslogic.co.uk>      */
+/*                                                            */
+/* This program is distributed under the terms of the GNU     */
+/* General Public License, version 2. You may use, modify,    */
+/* and redistribute it under the terms of this license. A     */
+/* copy should be included with this source.                  */
+
+#define CALLSIGN "TEST"
+//#include "config.h"
+#include <stdio.h>
+#include <string.h>
+#include "ssdv.c"
+
+/* Jpeg Image Pointer */
+const uint8_t *img;
+
+
+
+uint8_t fill_image_packet(uint8_t *pkt)
+{
+	static uint8_t setup = 0;
+	static uint8_t img_id = 0;
+	static ssdv_t ssdv;
+	static size_t errcode;
+
+	if(!setup)
+	{
+		setup = 1;
+		ssdv_enc_init(&ssdv, SSDV_TYPE_NOFEC, CALLSIGN, img_id++, 1 + SSDV_QUALITY_NORMAL);
+		ssdv_enc_set_buffer(&ssdv, pkt);
+	}
+	
+	while((errcode = ssdv_enc_get_packet(&ssdv)) == SSDV_FEED_ME)
+	{
+		size_t len;
+		if (!vc0706bytes)
+			camera_photo();
+		len = camera_read(CAMREADSIZE);
+		if (len == 0)
+			break; // image incomplete ?
+		ssdv_enc_feed(&ssdv, camerabuff, len);
+	}
+	
+	if(errcode != SSDV_OK)
+	{
+		/* Something went wrong! */
+		fprintf(stderr, "\nSSDV returned errorcode %d\n",errcode);
+		setup = 0;
+		return 0;
+	}
+	
+	if(ssdv.state == S_EOI)
+		return 2; /* The end of the image has been reached */
+	
+	return 1; /* Got the packet */
+}
+
+int main(void) {
+	char main_buffer[256];
+	int i = 0;
+	int errorcount = 0;
+
+	if (!camera_reset())
+		return 0; // oops
+	while(i++ < 500) {
+		if(!fill_image_packet(main_buffer)) {
+			errorcount++;
+			fprintf(stderr, "SSDV error %d", errorcount);
+			// TODO: reset camera logic
+		} else
+			fwrite(main_buffer, 1, 256, stdout);
+	}
+	camera_close();
+}

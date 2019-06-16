@@ -54,7 +54,7 @@
 #define VC0706_GET_ZOOM 0x53
 
 /* Camera buffer 256 bytes */
-#define READSIZE 240
+#define CAMREADSIZE 240
 #define CAMERASIZE 256
 #define CAMERADELAY 10
 
