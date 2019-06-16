@@ -19,6 +19,8 @@
 #include "vc0706.h"
 #include "wiringSerial.h"
 
+uint8_t camerabuff[CAMERASIZE];
+
 int begin() {
 	uartfile = serialOpen("/dev/ttyAMA0", 38400);
 	if (!uartfile)
@@ -34,6 +36,7 @@ void reset() {
 	flush();
 }
 
+/*
 uint8_t getImageSize() {
 	uint8_t args[] = {0x4, 0x4, 0x1, 0x00, 0x19};
 	if ( !runCommand( VC0706_READ_DATA, args, sizeof( args ), 6 ) ) {
@@ -47,8 +50,6 @@ int setImageSize( uint8_t x ) {
 
 	return runCommand( VC0706_WRITE_DATA, args, sizeof( args ), 5 );
 }
-
-/*
 
 uint8_t getDownsize( void ) {
 	uint8_t args[] = {0x0};
@@ -122,6 +123,30 @@ uint32_t frameLength( void ) {
 	return ((1 & camerabuff[6]) << 16) + (camerabuff[7] << 8) + (camerabuff[8]);
 }
 
+/* Power ctrl may not be implemented
+int powerCtrl( uint8_t activeLow ) {
+	uint8_t args[] = {0x3, 0x0, 0x1, activeLow};
+	return runCommand( VC0706_POWER_CTRL, args, sizeof( args ), 5 );
+}
+
+// "Manual" is a bit sketchy on what features get powered off
+int powerMode( uint8_t fbuf_or_jpg ) {
+	uint8_t args[] = {0x4, 0x1, fbuf_or_jpg, 0x0, 0x0};
+	return runCommand( VC0706_POWER_CTRL, args, sizeof( args ), 5 );
+}
+
+int powerOff(void) {
+	int err = 0;
+
+	err += powerMode(1) <<0; // jpeg
+	err += powerCtrl(1) <<1; //  off
+	err += powerMode(0) <<2; // fbuf
+	err += powerCtrl(1) <<3; //  off
+	if( err )
+		fprintf(stderr, "Powerdown command failed:%0x.\n",err);
+	return err;
+}
+*/
 
 uint8_t available( void ) {
 	return bufferLen;
@@ -171,7 +196,7 @@ void sendCommand( uint8_t cmd, uint8_t args[], uint8_t argn ) {
 	int i;
 
 	SERIALOUT( 0x56 );
-	SERIALOUT( serialNum );
+	SERIALOUT( SERIALNUM );
 	SERIALOUT( cmd );
 	for ( i = 0; i < argn; i++ )
 		SERIALOUT( args[i] );
@@ -200,7 +225,7 @@ uint8_t readResponse( uint8_t numbytes, uint8_t timeout1ms ) {
 
 int verifyResponse( uint8_t command ) {
 	if ( ( camerabuff[0] != 0x76 ) ||
-			( camerabuff[1] != serialNum ) ||
+			( camerabuff[1] != SERIALNUM ) ||
 			( camerabuff[2] != command ) ||
 			( camerabuff[3] != 0x0 ) ) {
 		return 0;
@@ -230,14 +255,10 @@ int camera_photo(void) {
 	vc0706bytes = frameLength();
 	fprintf(stderr, "%d bytes to read\n", vc0706bytes);
 
-	// if( not lowpower() ):
-	fprintf(stderr, "Framebuffer not disabled\n");
 	return vc0706bytes;
 }
 
 uint8_t camera_read(uint8_t size) {
-	if (!vc0706bytes)
-		camera_photo();
 	if (vc0706bytes < size)
 		size = vc0706bytes;
 	vc0706bytes -= size;
@@ -250,8 +271,12 @@ uint8_t camera_read(uint8_t size) {
 	return size;
 }
 
+/* Nothing to do if power-save control is not implemented -	*
+ *  taking next photo freezes framebuffer at end of each image	*
+ *  and VGA out is disabled at every reset.			*/
+
 void camera_close(void) {
-	serialClose(uartfile);
+//	powerOff();
 }
 
 /* hadie - High Altitude Balloon flight software              */
@@ -263,25 +288,23 @@ void camera_close(void) {
 /* and redistribute it under the terms of this license. A     */
 /* copy should be included with this source.                  */
 
+
 #define CALLSIGN "TEST"
 //#include "config.h"
-#include <stdio.h>
-#include <string.h>
 #include "ssdv.c"
-
-/* Jpeg Image Pointer */
-const uint8_t *img;
-
-
 
 uint8_t fill_image_packet(uint8_t *pkt)
 {
 	static uint8_t setup = 0;
 	static uint8_t img_id = 0;
 	static ssdv_t ssdv;
-	static size_t errcode;
+//	static int reset_count = 0;
+	size_t errcode;
 
-	if(!setup)
+//	if (reset_count > 10)
+//		return 0;
+
+	if(!setup) // Restart for every image
 	{
 		setup = 1;
 		ssdv_enc_init(&ssdv, SSDV_TYPE_NOFEC, CALLSIGN, img_id++, 1 + SSDV_QUALITY_NORMAL);
@@ -298,19 +321,20 @@ uint8_t fill_image_packet(uint8_t *pkt)
 			break; // image incomplete ?
 		ssdv_enc_feed(&ssdv, camerabuff, len);
 	}
-	
-	if(errcode != SSDV_OK)
-	{
-		/* Something went wrong! */
-		fprintf(stderr, "\nSSDV returned errorcode %d\n",errcode);
-		setup = 0;
-		return 0;
+
+	if(errcode == SSDV_OK)
+		return 1;	// Got a packet
+
+	if(errcode == SSDV_EOI) {
+		setup = 0;	// Last packet
+		return 2;
 	}
-	
-	if(ssdv.state == S_EOI)
-		return 2; /* The end of the image has been reached */
-	
-	return 1; /* Got the packet */
+
+	/* Something went wrong */
+	setup = 0;
+	camera_reset();
+//	reset_count++;
+	return 0;
 }
 
 int main(void) {
@@ -320,13 +344,15 @@ int main(void) {
 
 	if (!camera_reset())
 		return 0; // oops
-	while(i++ < 500) {
+	while(i++ < 600) {
 		if(!fill_image_packet(main_buffer)) {
 			errorcount++;
-			fprintf(stderr, "SSDV error %d", errorcount);
 			// TODO: reset camera logic
 		} else
 			fwrite(main_buffer, 1, 256, stdout);
 	}
 	camera_close();
+	usleep(1000*1000); // wiringpi uses threaded callbacks
+	serialClose(uartfile);
 }
+

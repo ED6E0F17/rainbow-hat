@@ -32,6 +32,7 @@
 #define VC0706_COMM_MOTION_CTRL 0x37
 #define VC0706_COMM_MOTION_STATUS 0x38
 #define VC0706_COMM_MOTION_DETECTED 0x39
+#define VC0706_POWER_CTRL 0x3E
 #define VC0706_MOTION_CTRL 0x42
 #define VC0706_MOTION_STATUS 0x43
 #define VC0706_TVOUT_CTRL 0x44
@@ -57,7 +58,7 @@
 #define CAMREADSIZE 240
 #define CAMERASIZE 256
 #define CAMERADELAY 10
-
+#define SERIALNUM 0
 
 int begin( void );
 void reset( void );
@@ -75,9 +76,6 @@ int setImageSize( uint8_t );
 int frameBuffCtrl( uint8_t command );
 uint8_t getCompression();
 int setCompression( uint8_t c );
-
-uint8_t serialNum = 0;
-uint8_t camerabuff[CAMERASIZE];
 uint8_t bufferLen;
 uint16_t frameptr;
 int	uartfile;
