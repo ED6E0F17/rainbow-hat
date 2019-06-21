@@ -57,14 +57,14 @@
 /* Camera buffer 256 bytes */
 #define CAMREADSIZE 240
 #define CAMERASIZE 256
-#define CAMERADELAY 10
+#define CAMERADELAY 15
 #define SERIALNUM 0
 
 int begin( void );
 void reset( void );
 int TVon( int state );
 int takePicture( void );
-uint8_t *readPicture( uint8_t n );
+uint8_t readPicture( uint8_t n );
 int resumeVideo( void );
 uint32_t frameLength( void );
 void getVersion( void );

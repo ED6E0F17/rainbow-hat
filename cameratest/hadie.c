@@ -85,7 +85,6 @@ uint8_t getCompression( void ) {
 }
 */
 
-
 int takePicture() {
 	frameptr = 0;
 	return frameBuffCtrl( VC0706_STOPCURRENTFRAME );
@@ -112,6 +111,7 @@ uint32_t frameLength( void ) {
 		return 0;
 	}
 
+	// Length is always less than 65536, but we allow for double that.
 	return ((1 & camerabuff[6]) << 16) + (camerabuff[7] << 8) + (camerabuff[8]);
 }
 
@@ -145,7 +145,7 @@ uint8_t available( void ) {
 }
 
 /* Warning - block size limited to 8 bit: 250 bytes */
-uint8_t *readPicture( uint8_t n ) {
+uint8_t readPicture( uint8_t n ) {
 	uint8_t args[] = {0x0C, 0x0, 0x0A,
 			  0, 0, frameptr >> 8, frameptr & 0xFF,
 			  0, 0, 0, n,
@@ -159,7 +159,7 @@ uint8_t *readPicture( uint8_t n ) {
 	}
 	frameptr += n;
 
-	return camerabuff;
+	return n;
 }
 
 /**************** low level commands */
@@ -247,7 +247,8 @@ void camera_vgaoff() {
 void camera_photo(void) {
 	printf("\nTaking Picture.\n");
 	takePicture();
-	vc0706bytes = frameLength();
+	vc0706bytes = frameLength();	// Assume this is a multiple of 4 bytes
+	vc0706bytes += 4;		// Add 4 bytes for padding
 	printf("%d bytes to read\n", vc0706bytes);
 }
 
@@ -261,10 +262,9 @@ void camera_EOI(void) {		// flush input and start camera
 uint8_t camera_read(uint8_t size) {
 	if (vc0706bytes < size)
 		size = vc0706bytes;
-	// size = (size + 3) & ~3;		// spec says read 4 bytes at a time
 	vc0706bytes -= size;
-	imagebuffer = readPicture( size ); // returns null for failure
-	if (vc0706bytes < LOW_DISCARD)	// Leave small sizes unread
+	size = readPicture( size );
+	if (vc0706bytes < LOW_DISCARD)
 		camera_EOI();
 	
 	return size;
@@ -308,7 +308,7 @@ int fill_image_packet(uint8_t *pkt)
 	if (reset_count > MAX_RESETS)
 		return -1;
 
-	if (setup == NEEDS_RESET) {		// first run
+	if (setup == NEEDS_RESET) {	// first run
 		camera_reset();
 		setup = WAS_RESET;
 		return -1;		// reset needs delay
@@ -339,10 +339,6 @@ int fill_image_packet(uint8_t *pkt)
 	}
 
 	if(errcode == SSDV_OK) {
-		if (!vc0706bytes) {	// Force new image before EOI
-			setup = NEEDS_SETUP;
-			printf("Forcing next image start early.");
-		}
 		return img_id;	// Wrote a packet
 	}
 
@@ -373,22 +369,18 @@ char filename[20];
 int main(void) {
 	uint8_t main_buffer[256];
 	int status, i = 0;
-	int errorcount = -1;
 
 	if (!serial_begin())
 		return 0; // oops
-	while(i++ < 1000) {
+	while(i++ < 2000) {
 		status = fill_image_packet(main_buffer);
-		if (status < 0)
-			errorcount++;
-		else {
+		if (status >= 0) {
 			sprintf(filename, "hadie%03x.ssdv", status);
 			imgfile = fopen(filename,"a+");
 			fwrite(main_buffer, 1, 256, imgfile);
 			fclose(imgfile);
 		}
 	}
-	printf("Errorcount:%d", errorcount);
 	camera_close();
 	usleep(1000*1000); // wiringpi uses threaded callbacks
 	serialClose(uartfile);
